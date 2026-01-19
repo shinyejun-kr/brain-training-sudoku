@@ -32,6 +32,7 @@ function App() {
   const [hadOnlineRoom, setHadOnlineRoom] = useState(false);
   const [showOnlineResult, setShowOnlineResult] = useState(true);
   const [roomClosedReason, setRoomClosedReason] = useState<string | null>(null);
+  const [completedDeleteSecondsLeft, setCompletedDeleteSecondsLeft] = useState<number | null>(null);
 
   // Firebase 초기화 및 익명 로그인
   useEffect(() => {
@@ -95,6 +96,27 @@ function App() {
     if (!onlineRoom.room) return;
     if (onlineRoom.room.status === 'playing') setShowOnlineResult(true);
   }, [onlineRoom.room?.status]);
+
+  useEffect(() => {
+    if (!onlineRoom.room || onlineRoom.room.status !== 'completed' || !onlineRoom.room.completedAt) {
+      setCompletedDeleteSecondsLeft(null);
+      return;
+    }
+    const tick = () => {
+      const end = onlineRoom.room!.completedAt! + 15 * 60 * 1000;
+      const leftMs = Math.max(0, end - Date.now());
+      setCompletedDeleteSecondsLeft(Math.ceil(leftMs / 1000));
+    };
+    tick();
+    const interval = window.setInterval(tick, 1000);
+    return () => window.clearInterval(interval);
+  }, [onlineRoom.room?.status, onlineRoom.room?.completedAt]);
+
+  const formatMmSs = (seconds: number) => {
+    const mm = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const ss = Math.floor(seconds % 60).toString().padStart(2, '0');
+    return `${mm}:${ss}`;
+  };
 
   useEffect(() => {
     if (gameMode !== 'online') return;
@@ -324,6 +346,12 @@ function App() {
               {onlineRoom.room.status === 'playing' && (
                 <div style={{ marginBottom: 12, color: 'rgba(255,255,255,0.75)', textAlign: 'center' }}>
                   ⏳ 제한시간 <strong>40분</strong> (시간 초과 시 방이 자동 종료됩니다)
+                </div>
+              )}
+
+              {onlineRoom.room.status === 'completed' && completedDeleteSecondsLeft !== null && (
+                <div style={{ marginBottom: 12, color: 'rgba(255,255,255,0.75)', textAlign: 'center' }}>
+                  ⏳ 방 자동 삭제까지 남은 시간: <strong>{formatMmSs(completedDeleteSecondsLeft)}</strong>
                 </div>
               )}
 

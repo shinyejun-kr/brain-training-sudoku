@@ -168,7 +168,8 @@ export function useOnlineRoom(roomId: string | null, userId: string) {
   // Stale players cleanup (hostless/ghost 방 정리 포함)
   useEffect(() => {
     if (!roomId || !room) return;
-    if (room.hostId !== userId) return;
+    const isFinalState = room.status === 'completed' || room.status === 'abandoned';
+    if (!isFinalState && room.hostId !== userId) return;
 
     const interval = window.setInterval(() => {
       backendService.pruneStalePlayers(roomId, 90_000).catch(() => {});

@@ -243,27 +243,37 @@ class FirebaseService implements IBackendService {
     const data = after.data() as any;
     const status = data?.status as string | undefined;
     const winnerId = data?.winnerId as string | null | undefined;
-    const wasHost = data?.hostId === playerId;
+    const currentHostId = data?.hostId as string | undefined;
+    const wasHost = currentHostId === playerId;
+    const maxPlayers = typeof data?.maxPlayers === 'number' ? data.maxPlayers : 10;
 
     const playersRef = collection(this.db, 'rooms', roomId, 'players');
-    const remainingSnap = await getDocs(query(playersRef, orderBy('joinedAt', 'asc'), limit(2)));
+    const remainingSnap = await getDocs(
+      query(playersRef, orderBy('joinedAt', 'asc'), limit(Math.min(maxPlayers, 10)))
+    );
 
     if (remainingSnap.empty) {
       await this.deleteRoomWithPlayers(roomId);
       return;
     }
 
-    const remainingIds = remainingSnap.docs.map((d) => d.id);
+    const remainingDocs = remainingSnap.docs.map((d) => ({ id: d.id, data: d.data() as any }));
+    const remainingIds = remainingDocs.map((d) => d.id);
     const onlyOneLeft = remainingIds.length === 1;
-    const remainingActiveCount = remainingSnap.docs.filter((d) => {
-      const p = d.data() as any;
-      return p?.status !== 'disconnected';
-    }).length;
+    const remainingActiveIds = remainingDocs
+      .filter((d) => d.data?.status !== 'disconnected')
+      .map((d) => d.id);
+    const remainingActiveCount = remainingActiveIds.length;
 
-    // 호스트가 나가면 남은 플레이어에게 host 승계
-    if (wasHost) {
-      const newHostId = remainingIds[0];
-      await updateDoc(roomRef, { hostId: newHostId });
+    // 호스트 재할당 규칙:
+    // - 누가 나가든, 현재 host가 남아있지 않거나(disconnected 포함) 빠졌으면 남은 사람 중 1명에게 host 부여
+    const hostDoc = remainingDocs.find((d) => d.id === currentHostId);
+    const hostInvalid = !currentHostId || !hostDoc || hostDoc.data?.status === 'disconnected';
+    if (wasHost || hostInvalid) {
+      const newHostId = remainingActiveIds[0] || remainingIds[0];
+      if (newHostId && newHostId !== currentHostId) {
+        await updateDoc(roomRef, { hostId: newHostId });
+      }
     }
 
     // 게임이 끝났거나(완료/타임아웃 등) 남은 사람이 모두 disconnected면 방 정리
