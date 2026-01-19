@@ -161,6 +161,13 @@ function App() {
     setOnlineBoard([]);
   };
 
+  const handleBackToMenuFromOnline = async () => {
+    if (roomId) {
+      await onlineRoom.leaveRoom();
+    }
+    handleBackToMenu();
+  };
+
   // 온라인 룸 나가기
   const handleLeaveRoom = async () => {
     await onlineRoom.leaveRoom();
@@ -297,7 +304,7 @@ function App() {
             onlineRoom.room.status === 'abandoned') && (
             <div className="game-container">
               <div className="game-header">
-                <button className="btn btn--outline" onClick={handleBackToMenu}>
+                <button className="btn btn--outline" onClick={handleBackToMenuFromOnline}>
                   ← Back to Menu
                 </button>
                 <h2 className="game-title">Online Battle - {selectedDifficulty}</h2>

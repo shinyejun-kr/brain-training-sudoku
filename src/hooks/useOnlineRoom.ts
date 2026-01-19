@@ -7,6 +7,7 @@ export function useOnlineRoom(roomId: string | null, userId: string) {
   const [room, setRoom] = useState<OnlineRoom | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasGivenUp, setHasGivenUp] = useState(false);
   const progressDebounceRef = useRef<number | null>(null);
   const pendingProgressRef = useRef<GameProgress | null>(null);
   const lastSentPercentRef = useRef<number>(-1);
@@ -83,21 +84,23 @@ export function useOnlineRoom(roomId: string | null, userId: string) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to leave room');
     }
-  }, [roomId, userId]);
+  }, [roomId, userId, hasGivenUp]);
 
   // 기권(방에는 남되 승패 판정만)
   const giveUp = useCallback(async () => {
     if (!roomId) return;
     try {
       await backendService.giveUp(roomId, userId);
+      setHasGivenUp(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to give up');
     }
-  }, [roomId, userId]);
+  }, [roomId, userId, hasGivenUp]);
 
   // 진행률 업데이트
   const updateProgress = useCallback(async (progress: GameProgress) => {
     if (!roomId) return;
+    if (hasGivenUp) return;
 
     try {
       pendingProgressRef.current = progress;
@@ -139,6 +142,7 @@ export function useOnlineRoom(roomId: string | null, userId: string) {
   // Heartbeat + best-effort leave on unload
   useEffect(() => {
     if (!roomId || !userId) return;
+    if (hasGivenUp) return;
 
     const interval = window.setInterval(() => {
       backendService.heartbeat(roomId, userId).catch(() => {});
@@ -154,6 +158,11 @@ export function useOnlineRoom(roomId: string | null, userId: string) {
       window.removeEventListener('beforeunload', handleUnload);
     };
   }, [roomId, userId]);
+
+  useEffect(() => {
+    setHasGivenUp(false);
+    lastSentPercentRef.current = -1;
+  }, [roomId]);
 
   // Stale players cleanup (hostless/ghost 방 정리 포함)
   useEffect(() => {

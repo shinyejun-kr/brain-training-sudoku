@@ -348,7 +348,6 @@ class FirebaseService implements IBackendService {
     const playerRef = doc(this.db, 'rooms', roomId, 'players', playerId);
     await updateDoc(playerRef, {
       lastSeen: Date.now(),
-      status: 'active',
     });
   }
 

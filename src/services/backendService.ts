@@ -233,7 +233,6 @@ class MockBackendService implements IBackendService {
     const room = this.mockRooms.get(roomId);
     if (room && room.players[playerId]) {
       room.players[playerId].lastSeen = Date.now();
-      room.players[playerId].status = 'active';
       this.saveRoomsToStorage();
     }
   }
