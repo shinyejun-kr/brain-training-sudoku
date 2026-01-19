@@ -60,6 +60,29 @@ class FirebaseService implements IBackendService {
   private db = getFirebaseDb();
   private currentUser: User | null = null;
 
+  private userDoc(userId: string) {
+    return doc(this.db, 'users', userId);
+  }
+
+  private async getActiveRoomId(userId: string): Promise<string | null> {
+    const snap = await getDoc(this.userDoc(userId));
+    if (!snap.exists()) return null;
+    const data = snap.data() as any;
+    return typeof data?.activeRoomId === 'string' ? data.activeRoomId : null;
+  }
+
+  private async setActiveRoomId(userId: string, roomId: string | null): Promise<void> {
+    await setDoc(
+      this.userDoc(userId),
+      stripUndefined({
+        uid: userId,
+        activeRoomId: roomId,
+        activeRoomUpdatedAt: Date.now(),
+      }),
+      { merge: true }
+    );
+  }
+
   constructor() {
     // 인증 상태 구독
     onAuthStateChanged(this.auth, (user) => {
@@ -194,6 +217,13 @@ class FirebaseService implements IBackendService {
   }
 
   async joinRoom(roomId: string, player: Player): Promise<void> {
+    // 한 유저는 동시에 1개 방만 참여하도록 강제:
+    // 이전 방이 남아있으면(best-effort) leave 시도 후 현재 방에 join.
+    const previousRoomId = await this.getActiveRoomId(player.id);
+    if (previousRoomId && previousRoomId !== roomId) {
+      await this.leaveRoom(previousRoomId, player.id).catch(() => {});
+    }
+
     const roomRef = doc(this.db, 'rooms', roomId);
     const roomSnap = await getDoc(roomRef);
     if (!roomSnap.exists()) {
@@ -223,6 +253,9 @@ class FirebaseService implements IBackendService {
         lastSeen: Date.now(),
       }));
     }
+
+    // presence 기록
+    await this.setActiveRoomId(player.id, roomId);
   }
 
   async leaveRoom(roomId: string, playerId: string): Promise<void> {
@@ -254,6 +287,9 @@ class FirebaseService implements IBackendService {
 
     if (remainingSnap.empty) {
       await this.deleteRoomWithPlayers(roomId);
+      // presence 정리 (room이 사라지든 말든 이 방에서 나간 것으로 기록)
+      const active = await this.getActiveRoomId(playerId).catch(() => null);
+      if (active === roomId) await this.setActiveRoomId(playerId, null).catch(() => {});
       return;
     }
 
@@ -287,6 +323,10 @@ class FirebaseService implements IBackendService {
       const winner = remainingIds[0];
       await updateDoc(roomRef, { winnerId: winner, status: 'completed', completedAt: Date.now() });
     }
+
+    // presence 정리: 이 방에서 나갔다면 activeRoomId 해제
+    const active = await this.getActiveRoomId(playerId).catch(() => null);
+    if (active === roomId) await this.setActiveRoomId(playerId, null).catch(() => {});
   }
 
   async giveUp(roomId: string, playerId: string): Promise<void> {
