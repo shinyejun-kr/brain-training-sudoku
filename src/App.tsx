@@ -162,15 +162,26 @@ function App() {
   };
 
   const handleBackToMenuFromOnline = async () => {
-    if (roomId) {
-      await onlineRoom.leaveRoom();
+    if (roomId && userId) {
+      try {
+        // UI 전환보다 먼저 "플레이어 제거"를 확실히 시도
+        await onlineRoom.leaveRoom();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : '알 수 없는 오류';
+        alert(`방 나가기 실패\n\n${msg}\n\n(권한 문제면 Firestore Rules에서 players/{uid} 삭제 허용 필요)`);
+      }
     }
     handleBackToMenu();
   };
 
   // 온라인 룸 나가기
   const handleLeaveRoom = async () => {
-    await onlineRoom.leaveRoom();
+    try {
+      await onlineRoom.leaveRoom();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '알 수 없는 오류';
+      alert(`방 나가기 실패\n\n${msg}\n\n(권한 문제면 Firestore Rules에서 players/{uid} 삭제 허용 필요)`);
+    }
     handleBackToMenu();
   };
 

@@ -83,6 +83,7 @@ export function useOnlineRoom(roomId: string | null, userId: string) {
       setRoom(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to leave room');
+      throw err;
     }
   }, [roomId, userId, hasGivenUp]);
 

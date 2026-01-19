@@ -461,7 +461,7 @@ class FirebaseService implements IBackendService {
       if (!createdAt) continue;
       if (createdAt >= cutoff) continue;
       if (data?.status === 'playing') continue;
-      await deleteDoc(d.ref);
+      await this.deleteRoomWithPlayers(d.id);
       deleted += 1;
     }
 
