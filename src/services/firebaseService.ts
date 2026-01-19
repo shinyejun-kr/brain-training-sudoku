@@ -249,17 +249,27 @@ class FirebaseService implements IBackendService {
     const remainingSnap = await getDocs(query(playersRef, orderBy('joinedAt', 'asc'), limit(2)));
 
     if (remainingSnap.empty) {
-      await deleteDoc(roomRef);
+      await this.deleteRoomWithPlayers(roomId);
       return;
     }
 
     const remainingIds = remainingSnap.docs.map((d) => d.id);
     const onlyOneLeft = remainingIds.length === 1;
+    const remainingActiveCount = remainingSnap.docs.filter((d) => {
+      const p = d.data() as any;
+      return p?.status !== 'disconnected';
+    }).length;
 
     // 호스트가 나가면 남은 플레이어에게 host 승계
     if (wasHost) {
       const newHostId = remainingIds[0];
       await updateDoc(roomRef, { hostId: newHostId });
+    }
+
+    // 게임이 끝났거나(완료/타임아웃 등) 남은 사람이 모두 disconnected면 방 정리
+    if ((status === 'completed' || status === 'abandoned') && remainingActiveCount === 0) {
+      await this.deleteRoomWithPlayers(roomId);
+      return;
     }
 
     // 게임 중 누군가 나가서 1명만 남으면 남은 사람이 승리 처리
@@ -478,7 +488,7 @@ class FirebaseService implements IBackendService {
       const closedReason = data?.closedReason as string | null | undefined;
 
       if (playerCount !== null && playerCount <= 0) {
-        await deleteDoc(d.ref);
+        await this.deleteRoomWithPlayers(d.id);
         deleted += 1;
         continue;
       }
@@ -495,7 +505,7 @@ class FirebaseService implements IBackendService {
         continue;
       }
       if (createdAt && status === 'waiting' && now - createdAt > olderThanMs) {
-        await deleteDoc(d.ref);
+        await this.deleteRoomWithPlayers(d.id);
         deleted += 1;
       }
       if (expiresAt && status === 'playing' && now > expiresAt) {
