@@ -193,6 +193,7 @@ class MockBackendService implements IBackendService {
     if (room.status === 'playing' && !room.winnerId && remaining.length === 1) {
       room.winnerId = remaining[0].id;
       room.status = 'completed';
+      (room as any).completedAt = Date.now();
     }
     this.saveRoomsToStorage();
   }

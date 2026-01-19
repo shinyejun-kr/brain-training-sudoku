@@ -169,6 +169,7 @@ class FirebaseService implements IBackendService {
       maxPlayers: room.maxPlayers,
       winnerId: room.winnerId ?? null,
       startedAt: room.startedAt ?? null,
+      completedAt: null,
       playerCount: 0,
       puzzle: {
         ...stripUndefined(room.puzzle),
@@ -177,6 +178,16 @@ class FirebaseService implements IBackendService {
       },
     }));
     return room;
+  }
+
+  private async deleteRoomWithPlayers(roomId: string): Promise<void> {
+    const roomRef = doc(this.db, 'rooms', roomId);
+    const playersRef = collection(this.db, 'rooms', roomId, 'players');
+    const playersSnap = await getDocs(playersRef);
+    for (const d of playersSnap.docs) {
+      await deleteDoc(d.ref);
+    }
+    await deleteDoc(roomRef);
   }
 
   async joinRoom(roomId: string, player: Player): Promise<void> {
@@ -251,7 +262,7 @@ class FirebaseService implements IBackendService {
     // 게임 중 누군가 나가서 1명만 남으면 남은 사람이 승리 처리
     if (status === 'playing' && !winnerId && onlyOneLeft) {
       const winner = remainingIds[0];
-      await updateDoc(roomRef, { winnerId: winner, status: 'completed' });
+      await updateDoc(roomRef, { winnerId: winner, status: 'completed', completedAt: Date.now() });
     }
   }
 
@@ -282,7 +293,7 @@ class FirebaseService implements IBackendService {
       .filter((p) => p.id !== playerId && p.status !== 'disconnected');
 
     if (remaining.length === 1) {
-      await updateDoc(roomRef, { winnerId: remaining[0].id, status: 'completed' });
+      await updateDoc(roomRef, { winnerId: remaining[0].id, status: 'completed', completedAt: Date.now() });
     }
   }
 
@@ -321,7 +332,7 @@ class FirebaseService implements IBackendService {
         if (!snap.exists()) return;
         const data = snap.data() as any;
         if (data?.winnerId) return;
-        tx.update(roomRef, { winnerId: playerId, status: 'completed' });
+        tx.update(roomRef, { winnerId: playerId, status: 'completed', completedAt: Date.now() });
       });
     }
   }
@@ -343,13 +354,17 @@ class FirebaseService implements IBackendService {
     const now = Date.now();
     const status = roomData?.status as string | undefined;
     const createdAt = typeof roomData?.createdAt === 'number' ? roomData.createdAt : now;
+    const completedAt = typeof roomData?.completedAt === 'number' ? roomData.completedAt : null;
+
+    // completed 방은 15분 뒤 자동 삭제
+    if (status === 'completed' && completedAt && now - completedAt > 15 * 60 * 1000) {
+      await this.deleteRoomWithPlayers(roomId);
+      return;
+    }
 
     // waiting 방 5분 TTL
     if (status === 'waiting' && now - createdAt > 5 * 60 * 1000) {
-      const playersRef = collection(this.db, 'rooms', roomId, 'players');
-      const playersSnap = await getDocs(playersRef);
-      for (const d of playersSnap.docs) await deleteDoc(d.ref);
-      await deleteDoc(roomRef);
+      await this.deleteRoomWithPlayers(roomId);
       return;
     }
 
@@ -370,8 +385,7 @@ class FirebaseService implements IBackendService {
         ? hostDoc!.data().lastSeen
         : createdAt;
       if (now - hostLastSeen > 15 * 60 * 1000) {
-        for (const d of playersSnap.docs) await deleteDoc(d.ref);
-        await deleteDoc(roomRef);
+        await this.deleteRoomWithPlayers(roomId);
         return;
       }
     }
@@ -435,6 +449,7 @@ class FirebaseService implements IBackendService {
       const status = data?.status as string | undefined;
       const createdAt = typeof data?.createdAt === 'number' ? data.createdAt : null;
       const playerCount = typeof data?.playerCount === 'number' ? data.playerCount : null;
+      const completedAt = typeof data?.completedAt === 'number' ? data.completedAt : null;
 
       if (playerCount !== null && playerCount <= 0) {
         await deleteDoc(d.ref);
@@ -443,6 +458,11 @@ class FirebaseService implements IBackendService {
       }
 
       if (status === 'playing') continue;
+      if (status === 'completed' && completedAt && now - completedAt > 15 * 60 * 1000) {
+        await this.deleteRoomWithPlayers(d.id);
+        deleted += 1;
+        continue;
+      }
       if (createdAt && status === 'waiting' && now - createdAt > olderThanMs) {
         await deleteDoc(d.ref);
         deleted += 1;
@@ -476,6 +496,7 @@ class FirebaseService implements IBackendService {
         status: latestRoom.status,
         createdAt: latestRoom.createdAt,
         startedAt: latestRoom.startedAt || undefined,
+        completedAt: typeof latestRoom.completedAt === 'number' ? latestRoom.completedAt : undefined,
         winnerId: latestRoom.winnerId || undefined,
         maxPlayers: latestRoom.maxPlayers,
         puzzle: {

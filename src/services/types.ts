@@ -62,6 +62,7 @@ export interface OnlineRoom {
   status: GameStatus;
   createdAt: number;
   startedAt?: number;
+  completedAt?: number;
   winnerId?: string;
   maxPlayers: number;
 }

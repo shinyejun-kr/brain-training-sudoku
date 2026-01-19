@@ -19,6 +19,7 @@ import './App.css';
 
 function App() {
   const [userId, setUserId] = useState<string | null>(null);
+  const [initError, setInitError] = useState<string | null>(null);
   const [nickname, setNickname] = useState<string>('');
   const [externalUserId, setExternalUserId] = useState<string | undefined>(undefined);
   const [gameMode, setGameMode] = useState<GameMode | null>(null);
@@ -44,6 +45,8 @@ function App() {
         setIsInitialized(true);
       } catch (error) {
         console.error('❌ Failed to initialize:', error);
+        setInitError(error instanceof Error ? error.message : '초기화 실패');
+        setIsInitialized(true);
       }
     };
 
@@ -190,6 +193,19 @@ function App() {
       <div className="app-loading">
         <div className="spinner"></div>
         <p>Initializing game...</p>
+      </div>
+    );
+  }
+
+  if (initError) {
+    return (
+      <div className="app-loading">
+        <p style={{ maxWidth: 560, textAlign: 'center', lineHeight: 1.6 }}>
+          초기화 실패<br />
+          <span style={{ opacity: 0.8 }}>{initError}</span><br /><br />
+          Vercel 환경변수 이름이 <strong>VITE_FIREBASE_*</strong> 형태인지 확인하고,
+          Firebase Auth의 승인된 도메인에 <strong>brain-training-sudoku.vercel.app</strong>가 추가되었는지 확인하세요.
+        </p>
       </div>
     );
   }
@@ -344,6 +360,9 @@ function App() {
                     </h2>
                     <p className="completion-text">
                       승자: {onlineRoom.room.players[onlineRoom.room.winnerId]?.nickname || 'Unknown'}
+                    </p>
+                    <p className="completion-text" style={{ fontSize: '0.95rem' }}>
+                      ⏳ 방은 <strong>15분 후 자동으로 삭제</strong>됩니다. (필요하면 계속 풀거나 답을 확인하세요)
                     </p>
                     <div className="completion-actions">
                       <button
