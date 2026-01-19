@@ -31,6 +31,7 @@ function App() {
   const [onlineStartTime, setOnlineStartTime] = useState<number>(Date.now());
   const [hadOnlineRoom, setHadOnlineRoom] = useState(false);
   const [showOnlineResult, setShowOnlineResult] = useState(true);
+  const [roomClosedReason, setRoomClosedReason] = useState<string | null>(null);
 
   // Firebase 초기화 및 익명 로그인
   useEffect(() => {
@@ -87,6 +88,7 @@ function App() {
 
   useEffect(() => {
     if (onlineRoom.room) setHadOnlineRoom(true);
+    if (onlineRoom.room?.closedReason) setRoomClosedReason(onlineRoom.room.closedReason);
   }, [onlineRoom.room]);
 
   useEffect(() => {
@@ -99,13 +101,18 @@ function App() {
     if (!roomId) return;
     if (!hadOnlineRoom) return;
     if (onlineRoom.room !== null) return;
-    alert('방이 종료되었습니다.');
+    if (roomClosedReason === 'timeout') {
+      alert('제한시간 초과(40분)로 방이 종료되었습니다.');
+    } else {
+      alert('방이 종료되었습니다.');
+    }
     setHadOnlineRoom(false);
+    setRoomClosedReason(null);
     setGameMode(null);
     setRoomId(null);
     setShowJoinRoom(false);
     setOnlineBoard([]);
-  }, [gameMode, roomId, hadOnlineRoom, onlineRoom.room]);
+  }, [gameMode, roomId, hadOnlineRoom, onlineRoom.room, roomClosedReason]);
 
   // Solo 모드 시작
   const handleStartSolo = (difficulty: Difficulty) => {
@@ -285,7 +292,9 @@ function App() {
           )}
 
           {/* 게임 진행/결과 화면 */}
-          {(onlineRoom.room.status === 'playing' || onlineRoom.room.status === 'completed') && (
+          {(onlineRoom.room.status === 'playing' ||
+            onlineRoom.room.status === 'completed' ||
+            onlineRoom.room.status === 'abandoned') && (
             <div className="game-container">
               <div className="game-header">
                 <button className="btn btn--outline" onClick={handleBackToMenu}>
@@ -293,6 +302,12 @@ function App() {
                 </button>
                 <h2 className="game-title">Online Battle - {selectedDifficulty}</h2>
               </div>
+
+              {onlineRoom.room.status === 'playing' && (
+                <div style={{ marginBottom: 12, color: 'rgba(255,255,255,0.75)', textAlign: 'center' }}>
+                  ⏳ 제한시간 <strong>40분</strong> (시간 초과 시 방이 자동 종료됩니다)
+                </div>
+              )}
 
               <div className="online-layout">
                 <div className="online-game">
@@ -373,6 +388,22 @@ function App() {
                       </button>
                       <button className="btn btn--primary" onClick={handleLeaveRoom}>
                         종료(메뉴로)
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {onlineRoom.room.status === 'abandoned' && onlineRoom.room.closedReason === 'timeout' && (
+                <div className="completion-modal">
+                  <div className="completion-content">
+                    <h2 className="completion-title">⏱️ 제한시간 초과(40분)</h2>
+                    <p className="completion-text">
+                      제한시간이 지나 방이 자동 종료되었습니다.
+                    </p>
+                    <div className="completion-actions">
+                      <button className="btn btn--primary" onClick={handleLeaveRoom}>
+                        확인(메뉴로)
                       </button>
                     </div>
                   </div>

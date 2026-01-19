@@ -8,6 +8,7 @@ export type Board = CellValue[][];
 export type GameMode = 'solo' | 'online';
 export type GameStatus = 'waiting' | 'playing' | 'completed' | 'abandoned';
 export type PlayerStatus = 'active' | 'completed' | 'disconnected';
+export type RoomClosedReason = 'timeout' | 'host-left' | 'empty' | 'unknown';
 
 // ============================================
 // 게임 관련 타입
@@ -63,6 +64,9 @@ export interface OnlineRoom {
   createdAt: number;
   startedAt?: number;
   completedAt?: number;
+  expiresAt?: number; // startedAt + 40min
+  closedAt?: number;
+  closedReason?: RoomClosedReason;
   winnerId?: string;
   maxPlayers: number;
 }

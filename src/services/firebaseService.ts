@@ -170,6 +170,9 @@ class FirebaseService implements IBackendService {
       winnerId: room.winnerId ?? null,
       startedAt: room.startedAt ?? null,
       completedAt: null,
+      expiresAt: null,
+      closedAt: null,
+      closedReason: null,
       playerCount: 0,
       puzzle: {
         ...stripUndefined(room.puzzle),
@@ -299,9 +302,13 @@ class FirebaseService implements IBackendService {
 
   async startGame(roomId: string): Promise<void> {
     const roomRef = doc(this.db, 'rooms', roomId);
+    const startedAt = Date.now();
     await updateDoc(roomRef, {
       status: 'playing',
-      startedAt: Date.now(),
+      startedAt,
+      expiresAt: startedAt + 40 * 60 * 1000,
+      closedAt: null,
+      closedReason: null,
     });
   }
 
@@ -355,9 +362,26 @@ class FirebaseService implements IBackendService {
     const status = roomData?.status as string | undefined;
     const createdAt = typeof roomData?.createdAt === 'number' ? roomData.createdAt : now;
     const completedAt = typeof roomData?.completedAt === 'number' ? roomData.completedAt : null;
+    const expiresAt = typeof roomData?.expiresAt === 'number' ? roomData.expiresAt : null;
+    const closedAt = typeof roomData?.closedAt === 'number' ? roomData.closedAt : null;
+    const closedReason = roomData?.closedReason as string | null | undefined;
 
     // completed 방은 15분 뒤 자동 삭제
     if (status === 'completed' && completedAt && now - completedAt > 15 * 60 * 1000) {
+      await this.deleteRoomWithPlayers(roomId);
+      return;
+    }
+
+    // playing 방은 40분 제한: 먼저 abandoned(timeout)으로 공지하고, 60초 후 삭제
+    if (status === 'playing' && expiresAt && now > expiresAt) {
+      await updateDoc(roomRef, {
+        status: 'abandoned',
+        closedReason: 'timeout',
+        closedAt: now,
+      });
+      return;
+    }
+    if (status === 'abandoned' && closedReason === 'timeout' && closedAt && now - closedAt > 60 * 1000) {
       await this.deleteRoomWithPlayers(roomId);
       return;
     }
@@ -450,6 +474,9 @@ class FirebaseService implements IBackendService {
       const createdAt = typeof data?.createdAt === 'number' ? data.createdAt : null;
       const playerCount = typeof data?.playerCount === 'number' ? data.playerCount : null;
       const completedAt = typeof data?.completedAt === 'number' ? data.completedAt : null;
+      const expiresAt = typeof data?.expiresAt === 'number' ? data.expiresAt : null;
+      const closedAt = typeof data?.closedAt === 'number' ? data.closedAt : null;
+      const closedReason = data?.closedReason as string | null | undefined;
 
       if (playerCount !== null && playerCount <= 0) {
         await deleteDoc(d.ref);
@@ -458,6 +485,11 @@ class FirebaseService implements IBackendService {
       }
 
       if (status === 'playing') continue;
+      if (status === 'abandoned' && closedReason === 'timeout' && closedAt && now - closedAt > 60 * 1000) {
+        await this.deleteRoomWithPlayers(d.id);
+        deleted += 1;
+        continue;
+      }
       if (status === 'completed' && completedAt && now - completedAt > 15 * 60 * 1000) {
         await this.deleteRoomWithPlayers(d.id);
         deleted += 1;
@@ -466,6 +498,9 @@ class FirebaseService implements IBackendService {
       if (createdAt && status === 'waiting' && now - createdAt > olderThanMs) {
         await deleteDoc(d.ref);
         deleted += 1;
+      }
+      if (expiresAt && status === 'playing' && now > expiresAt) {
+        await updateDoc(d.ref, { status: 'abandoned', closedReason: 'timeout', closedAt: now });
       }
     }
 
@@ -497,6 +532,9 @@ class FirebaseService implements IBackendService {
         createdAt: latestRoom.createdAt,
         startedAt: latestRoom.startedAt || undefined,
         completedAt: typeof latestRoom.completedAt === 'number' ? latestRoom.completedAt : undefined,
+        expiresAt: typeof latestRoom.expiresAt === 'number' ? latestRoom.expiresAt : undefined,
+        closedAt: typeof latestRoom.closedAt === 'number' ? latestRoom.closedAt : undefined,
+        closedReason: typeof latestRoom.closedReason === 'string' ? latestRoom.closedReason : undefined,
         winnerId: latestRoom.winnerId || undefined,
         maxPlayers: latestRoom.maxPlayers,
         puzzle: {
