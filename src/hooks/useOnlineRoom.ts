@@ -169,7 +169,32 @@ export function useOnlineRoom(roomId: string | null, userId: string) {
   useEffect(() => {
     if (!roomId || !room) return;
     const isFinalState = room.status === 'completed' || room.status === 'abandoned';
-    if (!isFinalState && room.hostId !== userId) return;
+    const now = Date.now();
+    const hostPlayer = room.hostId ? room.players?.[room.hostId] : undefined;
+    const hostLastSeen = hostPlayer?.lastSeen;
+    const hostStale =
+      !room.hostId ||
+      !hostPlayer ||
+      (typeof hostLastSeen === 'number' && now - hostLastSeen > 120_000);
+
+    // 기본: host 또는 종료 상태에서만 청소 실행.
+    // 예외: host가 비정상 종료로 유령이 되었으면(2분 이상 heartbeat 없음), 비호스트 중 1명만 takeover.
+    const shouldTakeover = !isFinalState && room.hostId !== userId && hostStale;
+    if (!isFinalState && room.hostId !== userId && !shouldTakeover) return;
+
+    if (shouldTakeover) {
+      const activePlayers = Object.values(room.players || {}).filter((p) => p.status !== 'disconnected');
+      const leaderId = activePlayers
+        .slice()
+        .sort((a, b) => {
+          const aj = typeof a.joinedAt === 'number' ? a.joinedAt : 0;
+          const bj = typeof b.joinedAt === 'number' ? b.joinedAt : 0;
+          if (aj !== bj) return aj - bj;
+          return a.id.localeCompare(b.id);
+        })[0]?.id;
+
+      if (leaderId && leaderId !== userId) return;
+    }
 
     const interval = window.setInterval(() => {
       backendService.pruneStalePlayers(roomId, 90_000).catch(() => {});

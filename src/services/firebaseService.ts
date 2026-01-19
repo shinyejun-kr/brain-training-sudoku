@@ -416,7 +416,7 @@ class FirebaseService implements IBackendService {
 
     // players=0 즉시 삭제
     if (playersSnap.empty) {
-      await deleteDoc(roomRef);
+      await this.deleteRoomWithPlayers(roomId);
       return;
     }
 
@@ -448,9 +448,32 @@ class FirebaseService implements IBackendService {
       await updateDoc(roomRef, { playerCount: increment(-deletedPlayers) });
     }
 
-    const afterPlayers = await getDocs(query(playersRef, limit(1)));
-    if (afterPlayers.empty) {
-      await deleteDoc(roomRef);
+    const afterSnap = await getDocs(playersRef);
+    if (afterSnap.empty) {
+      await this.deleteRoomWithPlayers(roomId);
+      return;
+    }
+
+    // host 유령(비정상 종료) 대비: host doc이 없거나 오래 끊겼으면, 남아있는 플레이어 중 한 명에게 host를 인계
+    const currentHostId = roomData?.hostId as string | undefined;
+    const hostDoc = currentHostId ? afterSnap.docs.find((d) => d.id === currentHostId) : undefined;
+    const hostLastSeen = typeof hostDoc?.data()?.lastSeen === 'number' ? hostDoc!.data().lastSeen : null;
+    const hostIsStale = !currentHostId || !hostDoc || (hostLastSeen !== null && now - hostLastSeen > cutoffMs);
+
+    if (hostIsStale) {
+      const candidates = afterSnap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((p) => p.status !== 'disconnected')
+        .sort((a, b) => {
+          const aj = typeof a.joinedAt === 'number' ? a.joinedAt : 0;
+          const bj = typeof b.joinedAt === 'number' ? b.joinedAt : 0;
+          return aj - bj;
+        });
+
+      const nextHost = candidates[0]?.id;
+      if (nextHost && nextHost !== currentHostId) {
+        await updateDoc(roomRef, { hostId: nextHost });
+      }
     }
   }
 
@@ -503,6 +526,12 @@ class FirebaseService implements IBackendService {
         continue;
       }
 
+      // playing 방 40분 제한: 만료되면 abandoned(timeout)으로 전환(즉시 삭제 X: UI 공지 목적)
+      if (status === 'playing' && expiresAt && now > expiresAt) {
+        await updateDoc(d.ref, { status: 'abandoned', closedReason: 'timeout', closedAt: now });
+        continue;
+      }
+
       if (status === 'playing') continue;
       if (status === 'abandoned' && closedReason === 'timeout' && closedAt && now - closedAt > 60 * 1000) {
         await this.deleteRoomWithPlayers(d.id);
@@ -517,9 +546,6 @@ class FirebaseService implements IBackendService {
       if (createdAt && status === 'waiting' && now - createdAt > olderThanMs) {
         await this.deleteRoomWithPlayers(d.id);
         deleted += 1;
-      }
-      if (expiresAt && status === 'playing' && now > expiresAt) {
-        await updateDoc(d.ref, { status: 'abandoned', closedReason: 'timeout', closedAt: now });
       }
     }
 
